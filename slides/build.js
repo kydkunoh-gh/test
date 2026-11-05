@@ -19,6 +19,77 @@ const THEME = {
   },
 };
 
+const sharp = require("sharp");
+const fs = require("fs");
+const IMG = path.join(__dirname, "img");
+
+// 具体例（内容は各URLのページで確認したもの）
+const EXAMPLES = [
+  {
+    title: "① 人用・持ち込み防止の例",
+    lead: "クリーンルーム・食品工場の入口用。同じ区分の中で、形・扉・材質が分かれる",
+    items: [
+      { img: "p1a", maker: "日本エアーテック", name: "標準型 EAS-17型", point: "標準機",
+        desc: "天井ノズルで上から除塵。多連結・L字／T字・自動ドア・シートシャッター内蔵に対応",
+        url: "https://mono.ipros.com/product/detail/2000740417" },
+      { img: "p1b", maker: "日本エアーテック", name: "L型／T型エアーシャワー", point: "形：L型・T型",
+        desc: "出入口を直角（L型）や三方（T型）に配置。部屋の配置に合わせて向きを変える",
+        url: "https://mono.ipros.com/product/detail/2000740482" },
+      { img: "p1c", maker: "ニットー冷熱製作所", name: "シートシャッター型 NAS-T161PSL2-AU", point: "扉：シートシャッター",
+        desc: "高速で自動開閉するオレンジ色のシートで虫の侵入を抑える。食品工場向け",
+        url: "https://pr.mono.ipros.com/takatsu/product/detail/2001637962/" },
+      { img: "p1d", maker: "日立産機システム", name: "PCJ-S88JSM4", point: "材質：ステンレス",
+        desc: "筐体をステンレス（SUS304）にして耐食性を高めた。湿式床の食品工場向け",
+        url: "https://www.hitachi.com/ja-jp/press/articles/2019/08/0826/" },
+    ],
+    source: "画像・記載の出典：各URLの製品ページ（イプロスものづくり、日立）",
+  },
+];
+
+async function exampleSlide(pres, C, ex) {
+  const s = pres.addSlide({ masterName: "TITLE_ONLY", sectionTitle: "具体例" });
+  s.addText(ex.title, { placeholder: "title" });
+  s.addText(ex.lead, { placeholder: "body" });
+
+  const n = ex.items.length, x0 = 0.6, totalW = 12.13, gap = 0.3;
+  const w = (totalW - gap * (n - 1)) / n;
+  const imgY = 1.85, imgH = 2.2;
+  for (let i = 0; i < n; i++) {
+    const it = ex.items[i], x = x0 + i * (w + gap);
+    const file = ["jpg", "png", "jpeg"].map(e => path.join(IMG, it.img + "." + e)).find(f => fs.existsSync(f));
+    // 画像枠（薄いグレー）に縦横比を保って収める
+    s.addShape(pres.ShapeType.rect, { objectName: `imgFrame${i + 1}`, x, y: imgY, w, h: imgH,
+      fill: { color: C.background1 }, line: { color: C.accent4, width: 0.75 } });
+    if (file) {
+      const { width, height } = await sharp(file).metadata();
+      const pad = 0.1, bw = w - pad * 2, bh = imgH - pad * 2;
+      const scale = Math.min(bw / width, bh / height);
+      const iw = width * scale, ih = height * scale;
+      s.addImage({ path: file, objectName: `img${i + 1}`, x: x + (w - iw) / 2, y: imgY + (imgH - ih) / 2, w: iw, h: ih,
+        altText: `${it.maker} ${it.name}` });
+    } else {
+      s.addText("画像（取得待ち）", { isTextBox: true, objectName: `imgPending${i + 1}`, x, y: imgY, w, h: imgH,
+        fontSize: 11, color: C.accent2, align: "center", valign: "middle", margin: 0 });
+    }
+    let y = imgY + imgH + 0.2;
+    s.addText(it.point, { isTextBox: true, objectName: `point${i + 1}`, x, y, w, h: 0.3,
+      fontSize: 12, bold: true, color: C.text2, margin: 0, valign: "middle" });
+    y += 0.35;
+    s.addText([
+      { text: it.maker, options: { fontSize: 11, color: C.accent5, breakLine: true } },
+      { text: it.name, options: { fontSize: 14, bold: true, color: C.text1 } },
+    ], { isTextBox: true, objectName: `name${i + 1}`, x, y, w, h: 0.85, margin: 0, valign: "top" });
+    y += 0.9;
+    s.addText(it.desc, { isTextBox: true, objectName: `desc${i + 1}`, x, y, w, h: 1.0,
+      fontSize: 13, color: C.text1, margin: 0, valign: "top" });
+    y += 1.05;
+    s.addText(it.url, { isTextBox: true, objectName: `url${i + 1}`, x, y, w, h: 0.4,
+      fontSize: 9, color: C.text2, margin: 0, valign: "top", hyperlink: { url: it.url } });
+  }
+  s.addText(ex.source, { isTextBox: true, objectName: "source", x: 0.6, y: 7.0, w: 11.3, h: 0.3,
+    fontSize: 10, color: C.accent2, margin: 0, valign: "middle" });
+}
+
 async function main() {
   const pres = new pptxgen();
   pres.layout = "LAYOUT_WIDE"; // 13.333 x 7.5
@@ -99,6 +170,10 @@ async function main() {
     isTextBox: true, objectName: "source", x: 0.6, y: 7.0, w: 11.3, h: 0.3, fontSize: 10, color: C.accent2, margin: 0, valign: "middle" });
 
   s.addNotes("2つの問いで分ける。何を除塵するか（人／物）、何を守るか（中＝持ち込み防止／外＝持ち出し防止）。形・扉・材質・付加機能は4区分の中の仕様の違いとして扱う。");
+
+  // ---------- 具体例スライド ----------
+  pres.addSection({ title: "具体例" });
+  for (const ex of EXAMPLES) await exampleSlide(pres, C, ex);
 
   const out = "エアシャワー分類.pptx";
   await pres.writeFile({ fileName: out });
