@@ -148,24 +148,31 @@ async function fitImage(s, file, box, name, alt, valign = "bottom") {
   s.addImage({ path: file, objectName: name, x, y, w, h, altText: alt });
 }
 
-// 製品カード（画像・タグ・会社名・製品名・説明・URL）
-async function card(s, C, it, i, x, w, layout) {
-  const L = layout;
-  await fitImage(s, path.join(IMG, it.img), { x: x + 0.1, y: L.imgY, w: w - 0.2, h: L.imgH }, `img${i + 1}`, `${it.maker} ${it.name.replace(/\n/g, " ")}`);
-  s.addText(it.tag, { isTextBox: true, objectName: `tag${i + 1}`, x, y: L.tagY, w, h: 0.28,
-    fontSize: 12, bold: true, color: C.accent1, margin: 0, valign: "middle" });
-  s.addText([
-    { text: it.maker, options: { fontSize: 11, color: C.accent5, breakLine: true } },
-    ...it.name.split("\n").map((t, k, a) => ({ text: t, options: { fontSize: 14, bold: true, color: C.text1, breakLine: k < a.length - 1 } })),
-  ], { isTextBox: true, objectName: `name${i + 1}`, x, y: L.nameY, w, h: L.nameH, margin: 0, valign: "top", paraSpaceAfter: 2 });
-  s.addText(it.desc, { isTextBox: true, objectName: `desc${i + 1}`, x, y: L.descY, w, h: L.descH,
-    fontSize: 13, color: C.text1, margin: 0, valign: "top", lineSpacingMultiple: 1.1 });
-  if (!SRC[it.img]) throw new Error("出典がない画像: " + it.img);
-  s.addText([
-    { text: "画像出典：" + SRC[it.img], options: { color: C.accent5, breakLine: true } },
-    { text: it.url, options: { color: C.accent1, hyperlink: { url: it.url, tooltip: it.url } } },
-  ], { isTextBox: true, objectName: `source${i + 1}`, x, y: L.srcY, w, h: L.srcH,
-    fontSize: 9, margin: 0, valign: "top", lineSpacingMultiple: 1.05 });
+// 製品カードの文字部分は1つの表にする（列＝製品、行＝タグ／会社名・製品名／説明／出典）。
+// 文字を増減しても行の高さが自動で伸び縮みし、各製品の行がそろったまま編集できる
+function cardTable(s, C, items, x0, w, gap, L) {
+  const none = { type: "none" };
+  const cell = (text, opts = {}) => ({ text, options: { valign: "top", margin: 0, border: [none, none, none, none], ...opts } });
+  const gapCell = () => cell("");
+  const row = f => items.flatMap((it, i) => (i ? [gapCell(), f(it)] : [f(it)]));
+  const rows = [
+    row(it => cell(it.tag, { fontSize: 12, bold: true, color: C.accent1 })),
+    row(it => cell([
+      { text: it.maker, options: { fontSize: 11, color: C.accent5, breakLine: true } },
+      ...it.name.split("\n").map((t, k, a) => ({ text: t, options: { fontSize: 14, bold: true, color: C.text1, breakLine: k < a.length - 1 } })),
+    ])),
+    row(it => cell(it.desc, { fontSize: 13, color: C.text1, lineSpacingMultiple: 1.1 })),
+    row(it => {
+      if (!SRC[it.img]) throw new Error("出典がない画像: " + it.img);
+      return cell([
+        { text: "画像出典：" + SRC[it.img], options: { color: C.accent5, breakLine: true } },
+        { text: it.url, options: { color: C.accent1, hyperlink: { url: it.url, tooltip: it.url } } },
+      ], { fontSize: 9, lineSpacingMultiple: 1.15 });
+    }),
+  ];
+  const colW = items.flatMap((_, i) => (i ? [gap, w] : [w]));
+  s.addTable(rows, { objectName: "productTable", x: x0, y: L.tableY, w: colW.reduce((a, b) => a + b, 0), colW,
+    rowH: L.rowH, color: C.text1, border: none, fill: { color: C.background1 } });
 }
 
 async function exampleSlide(pres, C, ex) {
@@ -175,12 +182,16 @@ async function exampleSlide(pres, C, ex) {
   s.addText(ex.lead, { placeholder: "body" });
   locator(s, C, ex.q);
 
-  const L = { imgY: 1.95, imgH: 1.95, shelfY: 4.0, tagY: 4.12, nameY: 4.45, nameH: 0.72, descY: 5.2, descH: 0.9, srcY: 6.12, srcH: 0.8 };
+  const L = { imgY: 1.9, imgH: 1.9, shelfY: 3.9, tableY: 4.0, rowH: [0.33, 0.7, 0.9, 0.9] };
   const x0 = 0.6, gap = 0.35;
   const areaW = ex.note ? 7.4 : 12.13;
   const n = ex.items.length, w = (areaW - gap * (n - 1)) / n;
+  for (let i = 0; i < n; i++) {
+    const it = ex.items[i], x = x0 + i * (w + gap);
+    await fitImage(s, path.join(IMG, it.img), { x: x + 0.1, y: L.imgY, w: w - 0.2, h: L.imgH }, `img${i + 1}`, `${it.maker} ${it.name.replace(/\n/g, " ")}`);
+  }
   hairline(s, C, x0, L.shelfY, areaW, C.accent3, 0.75, "shelf");
-  for (let i = 0; i < n; i++) await card(s, C, ex.items[i], i, x0 + i * (w + gap), w, L);
+  cardTable(s, C, ex.items, x0, w, gap, L);
 
   if (ex.note) {
     const nx = 8.45, nw = 12.73 - nx, ny = 1.95, nh = 4.9;
@@ -206,67 +217,65 @@ function matrixSlide(pres, C) {
   s.addText("エアシャワーの4分類", { placeholder: "title" });
   s.addText("「何を除塵するか（人／物）」と「何を守るか（中／外）」の2つの問いで分ける", { placeholder: "body" });
 
-  const x0 = 0.6, x1 = 8.4;             // マトリクスの左右
-  const rowLabW = 1.05;
-  const c1 = x0 + rowLabW + 0.15, c2 = 5.0 + 0.3;     // 列の左端
-  const colW = [5.0 - c1 - 0.15, x1 - c2];
-  const headY = 2.0, headH = 0.6, topRule = 2.7, midRule = 4.7, botRule = 6.7;
+  // 罫線（表の罫線は16進の色で指定する）
+  const H = THEME.colors;
+  const none = { type: "none" };
+  const thin = { type: "solid", pt: 0.75, color: H.accent4 };
+  const thick = { type: "solid", pt: 1.25, color: H.dk1 };
 
-  // 列見出し
-  [["中を守る", "持ち込み防止", c1, colW[0]], ["外を守る", "持ち出し防止", c2, colW[1]]].forEach(([a, b, x, w], i) => {
-    s.addText([
+  // 2×2のマトリクスを1つの表にする（列：行見出し／番号／内容／番号／内容）
+  const headY = 2.0, headH = 0.7, bodyH = 2.0;
+  const head = (a, b, padL) => ({
+    text: [
       { text: a, options: { fontSize: 18, bold: true, color: C.text1 } },
       { text: "　" + b, options: { fontSize: 13, color: C.accent5 } },
-    ], { isTextBox: true, objectName: `colHead${i + 1}`, x, y: headY, w, h: headH, margin: 0, valign: "bottom" });
+    ],
+    options: { colspan: 2, valign: "bottom", margin: [0, 0, 0.1, padL], border: [none, none, thick, none] },
   });
-  hairline(s, C, x0, topRule, x1 - x0, C.text1, 1.25, "topRule");
-  hairline(s, C, x0, midRule, x1 - x0, C.accent4, 0.75, "midRule");
-  hairline(s, C, x0, botRule, x1 - x0, C.accent4, 0.75, "botRule");
-  vline(s, C, 5.0 + 0.075, topRule + 0.2, botRule - topRule - 0.4, C.accent4, 0.75, "colRule");
-
-  // 行見出し
-  [["人用", topRule, midRule], ["物用", midRule, botRule]].forEach(([t, y0, y1], i) => {
-    s.addText(t, { isTextBox: true, objectName: `rowHead${i + 1}`, x: x0, y: y0, w: rowLabW, h: y1 - y0,
-      fontSize: 18, bold: true, color: C.text1, margin: 0, valign: "middle" });
+  const rowHead = (t, topB) => ({ text: t, options: { fontSize: 18, bold: true, color: C.text1, valign: "middle", margin: 0,
+    border: [topB, none, thin, none] } });
+  const num = (n, divider, topB) => ({ text: n, options: { fontSize: 40, color: C.accent1, valign: "top",
+    margin: [0.25, 0, 0, divider ? 0.15 : 0], border: [topB, none, thin, divider ? thin : none] } });
+  const body = (t, d, topB) => ({
+    text: [
+      { text: t, options: { fontSize: 16, bold: true, color: C.text1, breakLine: true, paraSpaceAfter: 8 } },
+      { text: d, options: { fontSize: 13, color: C.accent5, lineSpacingMultiple: 1.1 } },
+    ],
+    options: { valign: "top", margin: [0.32, 0.05, 0.1, 0.05], border: [topB, none, thin, none] },
   });
+  s.addTable([
+    [{ text: "", options: { border: [none, none, thick, none] } },
+      head("中を守る", "持ち込み防止", 0), head("外を守る", "持ち出し防止", 0.15)],
+    [rowHead("人用", thick),
+      num("1", false, thick), body("クリーンルーム・食品工場の入口用", "人に付いた塵埃を室内へ持ち込ませない。最も一般的な形", thick),
+      num("2", true, thick), body("高濃度粉じん用", "焼却施設・アスベスト現場の有害な粉じんを外へ持ち出させない", thick)],
+    [rowHead("物用", thin),
+      num("3", false, thin), body("物品用", "コンベア型・台車用・エアシャワー付パスボックス", thin),
+      num("4", true, thin), body("汚染区域からの搬出用", "汚染区域から出す機材・資材の除塵。製品例は少ない", thin)],
+  ], { objectName: "matrixTable", x: 0.6, y: headY, w: 7.8, colW: [1.2, 0.6, 2.6, 0.75, 2.65],
+    rowH: [headH, bodyH, bodyH], color: C.text1, fill: { color: C.background1 } });
 
-  const cells = [
-    { n: "1", x: c1, w: colW[0], y: topRule, t: "クリーンルーム・食品工場の入口用", d: "人に付いた塵埃を室内へ持ち込ませない。最も一般的な形" },
-    { n: "2", x: c2, w: colW[1], y: topRule, t: "高濃度粉じん用", d: "焼却施設・アスベスト現場の有害な粉じんを外へ持ち出させない" },
-    { n: "3", x: c1, w: colW[0], y: midRule, t: "物品用", d: "コンベア型・台車用・エアシャワー付パスボックス" },
-    { n: "4", x: c2, w: colW[1], y: midRule, t: "汚染区域からの搬出用", d: "汚染区域から出す機材・資材の除塵。製品例は少ない" },
-  ];
-  cells.forEach((c, i) => {
-    s.addText(c.n, { isTextBox: true, objectName: `num${i + 1}`, x: c.x, y: c.y + 0.25, w: 0.55, h: 0.7,
-      fontSize: 40, color: C.accent1, margin: 0, valign: "top" });
-    s.addText(c.t, { isTextBox: true, objectName: `cellTitle${i + 1}`, x: c.x + 0.6, y: c.y + 0.3, w: c.w - 0.6, h: 0.65,
-      fontSize: 16, bold: true, color: C.text1, margin: 0, valign: "top" });
-    s.addText(c.d, { isTextBox: true, objectName: `cellDesc${i + 1}`, x: c.x + 0.6, y: c.y + 1.0, w: c.w - 0.6, h: 0.8,
-      fontSize: 13, color: C.accent5, margin: 0, valign: "top", lineSpacingMultiple: 1.1 });
-  });
-
-  // 右：仕様の違い
+  // 右：仕様の違い（見出し＋1列の表）
   const px = 9.0, pw = 12.73 - px;
   s.addText([
     { text: "仕様の違い", options: { fontSize: 18, bold: true, color: C.text1, breakLine: true } },
     { text: "4区分に共通する選択肢", options: { fontSize: 12, color: C.accent5 } },
-  ], { isTextBox: true, objectName: "specHead", x: px, y: headY - 0.2, w: pw, h: headH + 0.2, margin: 0, valign: "bottom" });
-  hairline(s, C, px, topRule, pw, C.text1, 1.25, "specRule");
+  ], { isTextBox: true, objectName: "specHead", x: px, y: headY - 0.1, w: pw, h: headH, margin: [0, 0, 7, 0], valign: "bottom" });
   const specs = [
     ["形", "箱型／トンネル（多連結）型／L型・T型／扉なし開放型／置き型・ポータブル／分割型／屋外型", 1.2],
     ["扉", "手動／自動／シートシャッター（防虫）", 0.75],
     ["材質", "鋼板焼付塗装／ステンレス（食品工場の湿式床）", 0.85],
     ["付加機能", "除菌（スモーク・二酸化塩素）／陰圧（抗菌型）／イオナイザー／靴底専用（エアブロー・乾燥機・吸着マット）", 1.2],
   ];
-  let y = topRule;
-  specs.forEach(([k, v, h], i) => {
-    s.addText([
+  s.addTable(specs.map(([k, v], i) => [{
+    text: [
       { text: k, options: { fontSize: 12, bold: true, color: C.accent1, breakLine: true } },
-      { text: v, options: { fontSize: 13, color: C.text1 } },
-    ], { isTextBox: true, objectName: `spec${i + 1}`, x: px, y: y + 0.12, w: pw, h: h - 0.2, margin: 0, valign: "top", lineSpacingMultiple: 1.1 });
-    y += h;
-    if (i < specs.length - 1) hairline(s, C, px, y, pw, C.accent4, 0.75, `specLine${i + 1}`);
-  });
+      { text: v, options: { fontSize: 13, color: C.text1, lineSpacingMultiple: 1.1 } },
+    ],
+    options: { valign: "top", margin: [0.12, 0, 0.08, 0],
+      border: [i === 0 ? thick : thin, none, i === specs.length - 1 ? none : thin, none] },
+  }]), { objectName: "specTable", x: px, y: headY + headH, w: pw, colW: [pw], rowH: specs.map(r => r[2]),
+    color: C.text1, fill: { color: C.background1 } });
 
   s.addText("出典：愛豊工業 エアシャワー議論の引継ぎメモ（2026-11-05）", { placeholder: "source" });
   s.addNotes("2つの問いで分ける。何を除塵するか（人／物）、何を守るか（中＝持ち込み防止／外＝持ち出し防止）。形・扉・材質・付加機能は4区分の中の仕様の違いとして扱う。");
